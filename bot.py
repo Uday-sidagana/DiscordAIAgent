@@ -25,7 +25,8 @@ bot = commands.Bot(command_prefix='?', intents=intents)
 
 #Tools
 composio_toolset = ComposioToolSet()
-tools = composio_toolset.get_tools(apps=[App.GITHUB])
+tools = composio_toolset.get_tools(apps=[App.GOOGLECALENDAR])
+tools = composio_toolset.get_tools(apps=[App.DISCORD])
 
 # Retreive the current date and time
 date = datetime.today().strftime("%Y-%m-%d")
@@ -39,6 +40,8 @@ llm = ChatGoogleGenerativeAI(
     temperature=0.5,
     google_api_key=os.getenv("GOOGLE_API_KEY")
 )
+
+
 
 # Google Calendar Setup
 PORT_NUMBER = 8080
