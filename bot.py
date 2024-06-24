@@ -42,220 +42,48 @@ llm = ChatGoogleGenerativeAI(
 )
 
 
+def run_crew():
 
-# Google Calendar Setup
-PORT_NUMBER = 8080
-
-# Google Calendar API scopes
-SCOPES = ['https://www.googleapis.com/auth/calendar']
-
-# Load or create credentials
-creds = None
-if os.path.exists('token.pkl'):
-    with open('token.pkl', 'rb') as token:
-        creds = pickle.load(token)
-
-# If there are no (valid) credentials available, let the user log in.
-if not creds or not creds.valid:
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-    else:
-        # Set the redirect_uri with fixed port number
-        flow = InstalledAppFlow.from_client_secrets_file(
-            'credentials.json', SCOPES,
-            redirect_uri=f'http://localhost:{PORT_NUMBER}/oauth2callback')
-        creds = flow.run_local_server(port=PORT_NUMBER)
-
-    # Save the credentials for the next run
-    with open('token.pkl', 'wb') as token:
-        pickle.dump(creds, token)
-
-# Now you can use creds to build the service
-service = build('calendar', 'v3', credentials=creds)
-
-
-
-
-# Define a function to interact with Google Calendar using Google API
-async def perform_action(action, **kwargs):
-    if action == 'list_events':
-        return await list_events(**kwargs)
-    elif action == 'create_event':
-        return await create_event(**kwargs)
-    elif action == 'delete_event':
-        return await delete_event(**kwargs)
-    elif action == 'update_event':
-        return await update_event(**kwargs)
-    elif action == 'get_event':
-        return await get_event(**kwargs)
-    elif action == 'list_calendars':
-        return await list_calendars(**kwargs)
-    else:
-        raise ValueError(f"Unsupported action: {action}")
-
-# Function to list upcoming events
-async def list_events(**kwargs):
-    calendar_id = kwargs.get('calendarId', 'primary')
-    time_min = kwargs.get('timeMin')
-    max_results = kwargs.get('maxResults', 10)
-    single_events = kwargs.get('singleEvents', True)
-    order_by = kwargs.get('orderBy', 'startTime')
-
-    events_result = service.events().list(
-        calendarId=calendar_id,
-        timeMin=time_min,
-        maxResults=max_results,
-        singleEvents=single_events,
-        orderBy=order_by
-    ).execute()
-
-    return events_result
-
-# Function to create a new event
-async def create_event(**kwargs):
-    calendar_id = kwargs.get('calendarId', 'primary')
-    body = kwargs.get('body')
-
-    event_result = service.events().insert(
-        calendarId=calendar_id,
-        body=body
-    ).execute()
-
-    return event_result
-
-# Function to delete an event
-async def delete_event(**kwargs):
-    calendar_id = kwargs.get('calendarId', 'primary')
-    event_id = kwargs.get('eventId')
-
-    await service.events().delete(
-        calendarId=calendar_id,
-        eventId=event_id
-    ).execute()
-
-# Function to update an event
-async def update_event(**kwargs):
-    calendar_id = kwargs.get('calendarId', 'primary')
-    event_id = kwargs.get('eventId')
-    body = kwargs.get('body')
-
-    updated_event = service.events().update(
-        calendarId=calendar_id,
-        eventId=event_id,
-        body=body
-    ).execute()
-
-    return updated_event
-
-# Function to get details of a specific event
-async def get_event(**kwargs):
-    calendar_id = kwargs.get('calendarId', 'primary')
-    event_id = kwargs.get('eventId')
-
-    event = service.events().get(
-        calendarId=calendar_id,
-        eventId=event_id
-    ).execute()
-
-    return event
-
-# Function to list all available calendars
-async def list_calendars(**kwargs):
-    calendars_result = service.calendarList().list().execute()
-    return calendars_result
-
-# List Events Command
-@bot.command(name='events')
-async def get_events(ctx):
-    now = datetime.datetime.utcnow().isoformat() + 'Z'  # 'Z' indicates UTC time
-    events_result = await perform_action('list_events', calendarId='primary', timeMin=now, maxResults=10, singleEvents=True, orderBy='startTime')
-    events = events_result.get('items', [])
-
-    if not events:
-        await ctx.send('No upcoming events found.')
-        return
-
-    event_list = []
-    for event in events:
-        start = event['start'].get('dateTime', event['start'].get('date'))
-        event_list.append(f"{start} - {event['summary']}")
-
-    await ctx.send("\n".join(event_list))
-
-# Create Event Command
-@bot.command(name='create_event')
-async def create_event_command(ctx, summary: str, start_time: str, end_time: str):
-    event = {
-        'summary': summary,
-        'start': {
-            'dateTime': start_time,
-            'timeZone': 'UTC',
-        },
-        'end': {
-            'dateTime': end_time,
-            'timeZone': 'UTC',
-        },
-    }
-
-    event_result = await perform_action('create_event', calendarId='primary', body=event)
-    await ctx.send(f"Event created: {event_result.get('htmlLink')}")
-
-# Delete Event Command
-@bot.command(name='delete_event')
-async def delete_event_command(ctx, event_id: str):
-    try:
-        await perform_action('delete_event', calendarId='primary', eventId=event_id)
-        await ctx.send("Event deleted.")
-    except Exception as e:
-        await ctx.send(f"An error occurred: {e}")
-
-# Update Event Command
-@bot.command(name='update_event')
-async def update_event_command(ctx, event_id: str, summary: str = None, start_time: str = None, end_time: str = None):
-    try:
-        event = await perform_action('get_event', calendarId='primary', eventId=event_id)
+    discord_agent = Agent(
+        role="Discord Chat Assistant",
+        goal="""You connect to Discord via Discord bot token, Summerize what user wants to do with google Calendar""",
+        backstory="""You are an AI agent with access to Discord Bot. You need to have a conversation with user on Bots' behalf.
+        You need to summarize what the user is trying to do on Google Calendar. Pass information to {calendar_agent}. 
+        Use correct tools to connect to Discord from given tool-set."""
         
-        if summary:
-            event['summary'] = summary
-        if start_time:
-            event['start'] = {'dateTime': start_time, 'timeZone': 'UTC'}
-        if end_time:
-            event['end'] = {'dateTime': end_time, 'timeZone': 'UTC'}
+        verbose=True,
+        tools=tools,
+        llm=llm,
+    )
+    task = Task(
+        description=f"Summarize the user conversation into one of the four categories: create event, update event, delete event or list events. You can share this category to {calendar_agent}.
+        You also need to summarize information related to event",
+        agent=discord_agent,
+        expected_output="When the one of four categories is decided, Provide the summary",
+    )
+
+
+    calendar_agent = Agent(
+        role="Google Calendar Agent",
+        goal="""You take action on Google Calendar using Google Calendar APIs""",
+        backstory="""You are an AI agent responsible for taking actions on Google Calendar on users' behalf. 
+        You get information from discord Chat Assistant which you will use to take actions on Google Calendar.
+        You need to take action on Calendar using Google Calendar APIs. Use correct tools to run APIs from the given tool-set.""",
+        verbose=True,
+        tools=tools,
+        llm=llm,
+    )
+    task = Task(
+        description=f"Manage Events on Google Calendar. If create event: Create an event on Google Calendar, label it with Title and Schedule it on described time. 
+        If delete event: Delete the specified event from Google Calendar, if not specified delete all events scheduled for 10 days from Today, Today's date is {date} (it's in YYYY-MM-DD format) and make the timezone be {timezone}. 
+        If update event: Update the required information in the event or change time if described.
+        If list event: List all the events scheduled for 10 days from Today, Today's date is {date} (it's in YYYY-MM-DD format) and make the timezone be {timezone}. ",
         
-        updated_event = await perform_action('update_event', calendarId='primary', eventId=event_id, body=event)
-        await ctx.send(f"Event updated: {updated_event.get('htmlLink')}")
-    except Exception as e:
-        await ctx.send(f"An error occurred: {e}")
+        agent=calendar_agent,
+        expected_output="If Google Calendar is accessed, confirm the action taken",
+    )
+    task.execute()
+    return "Crew run initiated", 200
 
-# Get Event Details Command
-@bot.command(name='event_details')
-async def event_details(ctx, event_id: str):
-    try:
-        event = await perform_action('get_event', calendarId='primary', eventId=event_id)
-        start = event['start'].get('dateTime', event['start'].get('date'))
-        end = event['end'].get('dateTime', event['end'].get('date'))
-        await ctx.send(f"Event: {event['summary']}\nStart: {start}\nEnd: {end}\nLink: {event.get('htmlLink')}")
-    except Exception as e:
-        await ctx.send(f"An error occurred: {e}")
 
-# List Calendars Command
-@bot.command(name='list_calendars')
-async def list_calendars_command(ctx):
-    try:
-        calendars_result = await perform_action('list_calendars')
-        calendars = calendars_result.get('items', [])
-
-        if not calendars:
-            await ctx.send('No calendars found.')
-            return
-
-        calendar_list = []
-        for calendar in calendars:
-            calendar_list.append(f"{calendar['summary']} (ID: {calendar['id']})")
-
-        await ctx.send("\n".join(calendar_list))
-    except Exception as e:
-        await ctx.send(f"An error occurred: {e}")
-
-# Run the bot
-bot.run(os.getenv('DISCORD_BOT_TOKEN'))
+run_crew()
