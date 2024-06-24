@@ -27,6 +27,10 @@ bot = commands.Bot(command_prefix='?', intents=intents)
 composio_toolset = ComposioToolSet()
 tools = composio_toolset.get_tools(apps=[App.GITHUB])
 
+# Retreive the current date and time
+date = datetime.today().strftime("%Y-%m-%d")
+timezone = datetime.now().astimezone().tzinfo
+
 
 
 llm = ChatGoogleGenerativeAI(
